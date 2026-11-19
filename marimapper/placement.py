@@ -196,3 +196,55 @@ def place(
         for f in fits
     ]
     return placements, cm_per_unit, skipped
+
+
+PLACEMENT_ATTRIBUTES = (
+    "WorldPosX",
+    "WorldPosY",
+    "WorldPosZ",
+    "RotateX",
+    "RotateY",
+    "RotateZ",
+    "ScaleX",
+    "ScaleY",
+    "ScaleZ",
+)
+
+
+def set_layout_placements(layout_text: str, placements: list):
+    """Write placements into the text of an xlights_rgbeffects.xml.
+
+    Only the WorldPos/Rotate/Scale attributes of each matching <model> tag change; everything else in the
+    file stays byte-for-byte the same. Returns (new_text, written_models, missing_models).
+    """
+    written, missing = [], []
+    for p in placements:
+        tag = re.search(
+            r'<model\b[^>]*\bname="' + re.escape(p.model) + r'"[^>]*>', layout_text
+        )
+        if not tag:
+            missing.append(p.model)
+            continue
+        values = dict(
+            zip(
+                PLACEMENT_ATTRIBUTES,
+                (*p.position, *p.rotation, p.scale, p.scale, p.scale),
+            )
+        )
+        new_tag = tag.group(0)
+        for key, value in values.items():
+            attribute = re.compile(r"(\s)" + key + r'="[^"]*"')
+            text_value = f"{value:.6f}"
+            if attribute.search(new_tag):
+                new_tag = attribute.sub(
+                    lambda m, v=text_value, k=key: f'{m.group(1)}{k}="{v}"',
+                    new_tag,
+                    count=1,
+                )
+            else:
+                new_tag = new_tag.replace(
+                    f'name="{p.model}"', f'name="{p.model}" {key}="{text_value}"', 1
+                )
+        layout_text = layout_text[: tag.start()] + new_tag + layout_text[tag.end() :]
+        written.append(p.model)
+    return layout_text, written, missing

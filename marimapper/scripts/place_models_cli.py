@@ -2,12 +2,15 @@ import argparse
 import csv
 import json
 import os
+import shutil
+import subprocess
+import sys
 import time
 import urllib.request
 
 import numpy as np
 
-from marimapper.placement import place, xmodel_local_coords
+from marimapper.placement import place, set_layout_placements, xmodel_local_coords
 
 
 def xlights_command(url: str, cmd: str, params: dict):
@@ -60,6 +63,12 @@ def main():
         default="http://127.0.0.1:49913/mcp",
         help="xLights MCP endpoint (Preferences > Output > xFade/xSchedule = Port A)",
     )
+    parser.add_argument(
+        "--write_layout",
+        metavar="XLIGHTS_RGBEFFECTS_XML",
+        help="write the placements straight into the show folder's xlights_rgbeffects.xml "
+        "(xLights must be closed). Reliable alternative to --apply; a backup is kept",
+    )
     args = parser.parse_args()
 
     anchor = {
@@ -104,6 +113,9 @@ def main():
             f"{p.rotation[0]:7.1f} {p.rotation[1]:7.1f} {p.rotation[2]:7.1f} {p.scale:7.3f}{flags}"
         )
 
+    if args.write_layout:
+        write_layout(args.write_layout, placements)
+
     if args.apply:
         failed = [p for p in placements if not apply_placement(args.xlights_url, p)]
         ok, message = xlights_command(args.xlights_url, "saveLayout", {})
@@ -120,6 +132,36 @@ def main():
                     f"  {p.model}: {p.position[0]:.1f}, {p.position[1]:.1f}, {p.position[2]:.1f}, "
                     f"{p.rotation[0]:.1f}, {p.rotation[1]:.1f}, {p.rotation[2]:.1f}, {p.scale:.3f}"
                 )
+
+
+def xlights_running() -> bool:
+    if sys.platform == "win32":
+        result = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq xLights.exe"],
+            capture_output=True,
+            text=True,
+        )
+        return "xLights.exe" in result.stdout
+    return (
+        subprocess.run(["pgrep", "-x", "xLights"], capture_output=True).returncode == 0
+    )
+
+
+def write_layout(path: str, placements):
+    if xlights_running():
+        raise SystemExit(
+            "xLights is running: quit it first, or it will overwrite the layout when it saves"
+        )
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    new_text, written, missing = set_layout_placements(text, placements)
+    backup = f"{path}.before-placement-{time.strftime('%Y%m%d-%H%M%S')}"
+    shutil.copy(path, backup)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(new_text)
+    for name in missing:
+        print(f"{name}: no model with that name in {path}")
+    print(f"\nwrote {', '.join(written) or 'nothing'} into {path} (backup: {backup})")
 
 
 READ_KEYS = {

@@ -1,4 +1,5 @@
 import math
+import re
 
 import numpy as np
 import pytest
@@ -125,3 +126,38 @@ def test_euler_prefers_upright_form():
     rx, ry, rz = euler_for_xlights(R)
     assert abs(rx) < 1 and abs(rz) < 12
     assert np.allclose(xlights_rotation(rx, ry, rz), R)
+
+
+def test_set_layout_placements_only_touches_placement_attributes():
+    from marimapper.placement import Placement, set_layout_placements
+
+    tree_tag = (
+        '<model name="Tree (big)" DisplayAs="Custom" WorldPosX="1.0" WorldPosY="2.0" '
+        'WorldPosZ="3.0" ScaleX="1" ScaleY="1" ScaleZ="1" StartChannel="!Ctrl:1" />'
+    )
+    arch_tag = '<model name="Arch" DisplayAs="Arch" WorldPosX="9.0" />'
+    layout = f"<xrgb>\n<models>\n{tree_tag}\n{arch_tag}\n</models>\n</xrgb>\n"
+    p = Placement(
+        "Tree (big)", 10, 0.01, False, (10.5, 20.25, -3.0), (1.0, 90.0, -2.0), 2.5
+    )
+    q = Placement("Missing", 10, 0.01, False, (0, 0, 0), (0, 0, 0), 1.0)
+
+    new, written, missing = set_layout_placements(layout, [p, q])
+
+    assert written == ["Tree (big)"] and missing == ["Missing"]
+    tree = re.search(r'<model name="Tree \(big\)"[^>]*>', new).group(0)
+    expected = {
+        "WorldPosX": "10.500000",
+        "WorldPosY": "20.250000",
+        "WorldPosZ": "-3.000000",
+        "RotateX": "1.000000",  # missing before: added
+        "RotateY": "90.000000",
+        "RotateZ": "-2.000000",
+        "ScaleX": "2.500000",
+        "ScaleY": "2.500000",
+        "ScaleZ": "2.500000",
+    }
+    for key, value in expected.items():
+        assert f'{key}="{value}"' in tree
+    assert 'StartChannel="!Ctrl:1"' in tree and 'DisplayAs="Custom"' in tree
+    assert new.replace(tree, "") == layout.replace(tree_tag, "")  # nothing else changed

@@ -210,7 +210,9 @@ marimapper wled --server 192.168.1.50 --start 0 --end 1499 --robust --step 8 --d
 
 `marimapper_place_models` fits each prop's model onto its anchor LEDs and prints its xLights position,
 rotation and scale. `--apply` sets them through xLights' MCP server, reads each model back and lists
-anything xLights didn't apply so it can be entered by hand:
+anything xLights didn't apply so it can be entered by hand. More reliable: close xLights and use
+`--write_layout <show folder>/xlights_rgbeffects.xml`, which changes only those nine attributes on each
+model (a backup is kept):
 
 ```
 marimapper_place_models anchor/led_map_3d.csv props.json --measure "Tree:1:100:182"
