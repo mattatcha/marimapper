@@ -17,6 +17,9 @@ from marimapper.queues import (
     Queue3DInfo,
 )
 from functools import partial
+from typing import Optional
+from marimapper import robust_detector
+from marimapper.robust_detector import DetectionSettings
 
 logger = get_logger()
 
@@ -88,8 +91,14 @@ class DetectorProcess(Process):
         backend_factory: partial,
         display: bool = True,
         check_movement=True,
+        settings: Optional[DetectionSettings] = None,
+        led_start: Optional[int] = None,
+        led_end: Optional[int] = None,
     ):
         super().__init__()
+        self._settings = settings or DetectionSettings()
+        self._led_start = led_start
+        self._led_end = led_end
         self._request_detections_queue = RequestDetectionsQueue()  # {led_id, view_id}
         self._output_queues: list[Queue2D] = []  # LED3D
         self._led_count: Queue = Queue()
@@ -130,7 +139,29 @@ class DetectorProcess(Process):
 
         led_backend = self._led_backend_factory()
 
-        self._led_count.put(led_backend.get_led_count())
+        led_count = led_backend.get_led_count()
+        self._led_count.put(led_count)
+
+        robust = self._settings.robust
+        led_range = (
+            range(self._led_start, min(self._led_end + 1, led_count))
+            if self._led_start is not None and self._led_end is not None
+            else None
+        )
+
+        def show_preview():
+            # light the LEDs about to be scanned so the camera can be aimed at them
+            if robust and self._settings.preview and led_range is not None:
+                try:
+                    led_backend.set_leds(
+                        robust_detector.preview_buffer(
+                            led_count, led_range, self._settings
+                        )
+                    )
+                except AttributeError:
+                    logger.debug("backend has no set_leds, can't show the scan range")
+
+        show_preview()
 
         cam = Camera(self._device)
 
@@ -156,7 +187,13 @@ class DetectorProcess(Process):
                 set_cam_dark(cam, self._dark_exposure)
 
                 # Firstly, if there are leds visible, break out
-                if find_led(cam, self._threshold, self._display) is not None:
+                if robust:
+                    already_lit = robust_detector.find_led(
+                        cam, self._threshold, self._display, self._settings
+                    )
+                else:
+                    already_lit = find_led(cam, self._threshold, self._display)
+                if already_lit is not None:
                     logger.error(
                         "Detector process can detect an LED when no LEDs should be visible"
                     )
@@ -165,17 +202,31 @@ class DetectorProcess(Process):
                     set_cam_default(cam)
                     continue
 
-                leds = detect_leds(
-                    led_id_from,
-                    led_id_to,
-                    cam,
-                    led_backend,
-                    view_id,
-                    timeout_controller,
-                    self._threshold,
-                    self._display,
-                    self._output_queues,
-                )
+                if robust:
+                    leds = robust_detector.detect_leds(
+                        led_id_from,
+                        led_id_to,
+                        cam,
+                        led_backend,
+                        view_id,
+                        timeout_controller,
+                        self._threshold,
+                        self._display,
+                        self._output_queues,
+                        self._settings,
+                    )
+                else:
+                    leds = detect_leds(
+                        led_id_from,
+                        led_id_to,
+                        cam,
+                        led_backend,
+                        view_id,
+                        timeout_controller,
+                        self._threshold,
+                        self._display,
+                        self._output_queues,
+                    )
 
                 if leds is not None and len(leds) > 0:
 
@@ -183,7 +234,15 @@ class DetectorProcess(Process):
                     if self._check_movement:
                         led_first = leds[0]
 
-                        led_current = enable_and_find_led(
+                        find_one = (
+                            partial(
+                                robust_detector.enable_and_find_led,
+                                settings=self._settings,
+                            )
+                            if robust
+                            else enable_and_find_led
+                        )
+                        led_current = find_one(
                             cam,
                             led_backend,
                             led_first.led_id,
@@ -218,6 +277,7 @@ class DetectorProcess(Process):
 
                 # and lets reset everything back to normal
                 set_cam_default(cam)
+                show_preview()  # relight the range so the next view can be aimed
 
             if self._request_detections_queue.empty():
                 if self._display:
@@ -228,7 +288,18 @@ class DetectorProcess(Process):
                 if not self._input_3d_info_queue.empty():
                     led_info: dict[int, LEDInfo] = self._input_3d_info_queue.get()
 
-                    success = render_led_info(led_info, led_backend)
+                    if robust:
+                        try:
+                            led_backend.set_leds(
+                                robust_detector.coverage_buffer(
+                                    led_info, led_count, led_range, self._settings
+                                )
+                            )
+                            success = True
+                        except AttributeError:
+                            success = False
+                    else:
+                        success = render_led_info(led_info, led_backend)
                     if not success:
                         logger.debug(
                             "failed to update colourful backend buffer due to a missing attribute"

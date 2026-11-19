@@ -5,6 +5,8 @@ from marimapper.sfm_process import SFM
 from tqdm import tqdm
 from pathlib import Path
 from marimapper.detector_process import DetectorProcess
+from marimapper.robust_detector import DetectionSettings
+from typing import Optional
 from marimapper.queues import Queue2D, DetectionControlEnum
 from multiprocessing import get_logger, set_start_method
 from marimapper.file_tools import get_all_2d_led_maps
@@ -60,6 +62,7 @@ class Scanner:
         interpolation_max_error: float,
         check_movement: bool,
         camera_model_name: str,
+        detection_settings: Optional[DetectionSettings] = None,
     ):
         logger.debug("initialising scanner")
         set_start_method("spawn")  # VERY important, see top of file
@@ -72,6 +75,9 @@ class Scanner:
             backend_factory=backend_factory,
             display=True,
             check_movement=check_movement,
+            settings=detection_settings,
+            led_start=led_start,
+            led_end=led_end,
         )
 
         self.file_writer = FileWriterProcess(self.output_dir)

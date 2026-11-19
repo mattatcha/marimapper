@@ -100,6 +100,71 @@ def add_scanner_args(parser) -> None:
     )
 
 
+def add_robust_args(parser) -> None:
+
+    robust_options = parser.add_argument_group(
+        "robust detection options (outdoor / uncontrolled scenes)"
+    )
+
+    robust_options.add_argument(
+        "--robust",
+        action="store_true",
+        help="Ignore stars, streetlights, reflections, cars and flashlights: background subtraction, "
+        "coloured confirmation flashes and batched scanning. --threshold then means how much the "
+        "flashed colour must stand out (try 25-60). Colour and batching need a backend with set_leds",
+    )
+
+    robust_options.add_argument(
+        "--batch",
+        type=int,
+        default=3,
+        choices=[1, 2, 3],
+        help="With --robust: LEDs lit per flash, each in its own colour. Falls back to one at a time "
+        "automatically when LEDs overlap from the current angle",
+    )
+
+    robust_options.add_argument(
+        "--confirm",
+        type=int,
+        default=2,
+        help="With --robust: flashes per LED that must land in the same place",
+    )
+
+    robust_options.add_argument(
+        "--step",
+        type=int,
+        default=1,
+        help="With --robust: only scan every n-th LED, e.g. an anchor scan across several props "
+        "for placing them relative to each other",
+    )
+
+    robust_options.add_argument(
+        "--no_preview",
+        action="store_true",
+        help="With --robust: don't light the scan range while aiming the camera",
+    )
+
+    robust_options.add_argument(
+        "--status_brightness",
+        type=float,
+        default=0.35,
+        help="With --robust: brightness (0-1) of the per-LED coverage colours shown between views",
+    )
+
+
+def get_detection_settings(args: argparse.Namespace):
+    from marimapper.robust_detector import DetectionSettings
+
+    return DetectionSettings(
+        robust=args.robust,
+        batch=args.batch,
+        confirm=max(1, args.confirm),
+        step=max(1, args.step),
+        preview=not args.no_preview,
+        status_brightness=min(1.0, max(0.0, args.status_brightness)),
+    )
+
+
 def parse_common_args(args: argparse.Namespace, logger: logging.Logger) -> None:
     if args.verbose:
         logger.setLevel(logging.DEBUG)

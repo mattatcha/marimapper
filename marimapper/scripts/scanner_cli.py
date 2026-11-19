@@ -12,7 +12,9 @@ from marimapper.scripts.arg_tools import (
     add_common_args,
     add_camera_args,
     add_scanner_args,
+    add_robust_args,
     add_all_backend_parsers,
+    get_detection_settings,
 )
 from marimapper.backends.backend_utils import backend_factories
 from marimapper.scanner import Scanner
@@ -34,6 +36,7 @@ def main():
         add_common_args(backend_parser)
         add_camera_args(backend_parser)
         add_scanner_args(backend_parser)
+        add_robust_args(backend_parser)
 
     args = parser.parse_args()
 
@@ -59,6 +62,7 @@ def main():
         args.interpolation_max_error if args.interpolation_max_error != -1 else 10000,
         args.disable_movement_check,
         args.camera_model,
+        get_detection_settings(args),
     )
 
     scanner.mainloop()

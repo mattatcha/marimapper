@@ -160,6 +160,52 @@ By default (`1`), the colors of the leds in the visualiser are as follows:
 - Green: Reconstructed
 - Blue: Interpolated
 
+## Scanning outdoors or in a busy scene: `--robust`
+
+The default detector takes the brightest spot in the image as the LED, so stars, streetlights, lit
+windows, reflections, passing cars and flashlights all get picked up. `--robust` switches to a detector
+that only looks at what changes when an LED turns on, in the colour it was told to show:
+
+```
+marimapper wled --server 192.168.1.50 --start 0 --end 299 --robust --threshold 40
+```
+
+- **Background subtraction**: the scene is captured with the LEDs off first, so anything that's always
+  there (stars, streetlights, windows) is ignored.
+- **Colour flashes and confirmation**: each LED is flashed twice in two different colours and must land
+  in the same place both times. White light (headlights, flashlights) never matches a single colour.
+- **Reflections**: the blob with the brightest change wins (reflections are big but dim), and the LED's
+  position comes from its hottest pixels, not a lopsided glow.
+- **Batching** (`--batch 3`): three far-apart LEDs are lit at once in red, green and blue, roughly 3x
+  faster. If LEDs overlap from the current angle it switches to one LED at a time for that view, and
+  LEDs that are simply hidden from that angle aren't retried over and over.
+- **Aiming and coverage**: the LEDs about to be scanned light up while you aim the camera. After each
+  view they show their status: green = in 3D, aqua = interpolated, orange = seen but needs another
+  angle, red = can't be placed, magenta = not seen yet (`--no_preview`, `--status_brightness`).
+
+`--threshold` then means how much the LED's colour has to stand out: try 25-60. Colour and batching need a
+backend with `set_leds` (e.g. `wled`); others fall back to white flashes.
+
+## Placing several props in xLights
+
+Scan each prop on its own and build an xLights custom model from it. Then do one wide **anchor scan**
+that sees all the props, lighting only every n-th LED:
+
+```
+marimapper wled --server 192.168.1.50 --start 0 --end 1499 --robust --step 8 --dir anchor
+```
+
+`marimapper_place_models` fits each prop's model onto its anchor LEDs and prints its xLights position,
+rotation and scale (`--apply` sets them through xLights' MCP server and saves the layout):
+
+```
+marimapper_place_models anchor/led_map_3d.csv props.json --measure "Tree:1:100:182"
+```
+
+`props.json` lists `{"model": "Tree", "xmodel": "tree/Tree.xmodel", "first": 0}` entries, `first` being
+the LED index of node 1. `--measure` gives one real distance between two nodes for the scale; without it
+the LED wire spacing (`--led_spacing_cm`, default 10) is used as an estimate.
+
 # Not working?
 
 Make sure you've read this readme all the way through and do give those error messages a good read too.
