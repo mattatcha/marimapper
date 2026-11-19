@@ -186,6 +186,19 @@ marimapper wled --server 192.168.1.50 --start 0 --end 299 --robust --threshold 4
 `--threshold` then means how much the LED's colour has to stand out: try 25-60. Colour and batching need a
 backend with `set_leds` (e.g. `wled`); others fall back to white flashes.
 
+## Turning a scan into an xLights model
+
+`marimapper_to_xmodel` writes an xLights custom model from a scan, upright and the right way round:
+
+```
+marimapper_to_xmodel tree/led_map_3d.csv Tree.xmodel --name Tree --first 300 --count 200 --start_channel "!Controller:901"
+marimapper_to_xmodel arch/led_map_2d_0001.csv Arch.xmodel --name Arch --flat --first 0 --count 80
+```
+
+`--first` is the LED index of the model's first node; missing LEDs are interpolated from their
+neighbours. `--flat` builds a 2D model from a single view (good for flat props), `--submodel "Top=1-25"`
+adds submodels and repeated `--string "first_node:start_channel"` splits the model across outputs.
+
 ## Placing several props in xLights
 
 Scan each prop on its own and build an xLights custom model from it. Then do one wide **anchor scan**
@@ -196,7 +209,8 @@ marimapper wled --server 192.168.1.50 --start 0 --end 1499 --robust --step 8 --d
 ```
 
 `marimapper_place_models` fits each prop's model onto its anchor LEDs and prints its xLights position,
-rotation and scale (`--apply` sets them through xLights' MCP server and saves the layout):
+rotation and scale. `--apply` sets them through xLights' MCP server, reads each model back and lists
+anything xLights didn't apply so it can be entered by hand:
 
 ```
 marimapper_place_models anchor/led_map_3d.csv props.json --measure "Tree:1:100:182"

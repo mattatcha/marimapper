@@ -117,3 +117,11 @@ def test_props_without_enough_anchors_are_skipped():
         {0: np.zeros(3)}, [{"model": "Arch", "local": local, "first": 0}]
     )
     assert placements == [] and scale is None and skipped == ["Arch"]
+
+
+def test_euler_prefers_upright_form():
+    # X -180 / Z -169 describes the same orientation as a plain ~108 degree turn with small tilts
+    R = xlights_rotation(-179.6, -71.9, -168.8)
+    rx, ry, rz = euler_for_xlights(R)
+    assert abs(rx) < 1 and abs(rz) < 12
+    assert np.allclose(xlights_rotation(rx, ry, rz), R)

@@ -76,7 +76,17 @@ def euler_for_xlights(R: np.ndarray):
     else:  # gimbal lock
         a = math.atan2(-R[1, 2], R[1, 1])
         c = 0.0
-    return tuple(math.degrees(v) for v in (a, b, c))
+    a, b, c = (math.degrees(v) for v in (a, b, c))
+    # Every orientation has a second, equivalent angle set (a+180, 180-b, c+180). Prefer the one with
+    # less X/Z tilt, so an upright prop reads as a plain turn (RotateY) instead of e.g. X -180, Z -169.
+    alt = (_wrap(a + 180), _wrap(180 - b), _wrap(c + 180))
+    if abs(alt[0]) + abs(alt[2]) < abs(a) + abs(c):
+        return alt
+    return a, b, c
+
+
+def _wrap(degrees: float) -> float:
+    return (degrees + 180.0) % 360.0 - 180.0
 
 
 @dataclass

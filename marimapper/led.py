@@ -189,21 +189,32 @@ def last_view(leds: list[LED2D]):
 
 
 def find_inter_led_distance(leds: list[Union[LED2D, LED3D]]):
-    distances = []
+    """Median distance between consecutive LEDs.
+
+    Uses neighbours with an index gap of 1. Sparse scans (e.g. every n-th LED) have none, so the
+    smallest gap present is used instead, divided by that gap; otherwise the median of an empty list
+    is NaN and rescaling turns every point into NaN.
+    """
+    by_gap: dict[int, list[float]] = {}
 
     for led in leds:
         next_led = get_next(led, leds)
         if next_led is not None:
-            if get_gap(led, next_led) == 1:
-                dist = get_distance(led, next_led)
-                distances.append(dist)
+            gap = get_gap(led, next_led)
+            if gap > 0:
+                by_gap.setdefault(gap, []).append(get_distance(led, next_led) / gap)
 
-    return np.median(distances)
+    if not by_gap:
+        return np.nan
+
+    return np.median(by_gap[min(by_gap)])
 
 
 def rescale(leds: list[LED3D], target_inter_distance=1.0) -> int:
 
     inter_led_distance = find_inter_led_distance(leds)
+    if not np.isfinite(inter_led_distance) or inter_led_distance <= 0:
+        return 1.0  # nothing to measure against: leave the points alone rather than make them NaN
     scale = (1.0 / inter_led_distance) * target_inter_distance
     for led in leds:
         led.point *= scale

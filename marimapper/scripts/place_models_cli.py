@@ -2,6 +2,7 @@ import argparse
 import csv
 import json
 import os
+import time
 import urllib.request
 
 import numpy as np
@@ -104,32 +105,72 @@ def main():
         )
 
     if args.apply:
-        for p in placements:
-            values = {
-                "ModelX": p.position[0],
-                "ModelY": p.position[1],
-                "ModelZ": p.position[2],
-                "RotateX": p.rotation[0],
-                "RotateY": p.rotation[1],
-                "RotateZ": p.rotation[2],
-                "ScaleX": p.scale,
-                "ScaleY": p.scale,
-                "ScaleZ": p.scale,
-            }
-            for key, value in values.items():
-                ok, message = xlights_command(
-                    args.xlights_url,
-                    "setModelProperty",
-                    {"model": p.model, "key": key, "data": f"{value:.4f}"},
-                )
-                if not ok:
-                    print(f"{p.model} {key}: failed: {message}")
+        failed = [p for p in placements if not apply_placement(args.xlights_url, p)]
         ok, message = xlights_command(args.xlights_url, "saveLayout", {})
-        print(
-            "\napplied in xLights, layout saved"
-            if ok
-            else f"\nsaveLayout failed: {message}"
-        )
+        print("\nlayout saved" if ok else f"\nsaveLayout failed: {message}")
+        if failed:
+            # setModelProperty edits whichever model xLights' property grid is showing; for position,
+            # rotation and scale that isn't always the model asked for. Never leave it silently wrong.
+            print(
+                "\nxLights did not apply these; enter them in Layout by hand "
+                "(X, Y, Z, RotateX, RotateY, RotateZ, ScaleX=ScaleY=ScaleZ):"
+            )
+            for p in failed:
+                print(
+                    f"  {p.model}: {p.position[0]:.1f}, {p.position[1]:.1f}, {p.position[2]:.1f}, "
+                    f"{p.rotation[0]:.1f}, {p.rotation[1]:.1f}, {p.rotation[2]:.1f}, {p.scale:.3f}"
+                )
+
+
+READ_KEYS = {
+    "ModelX": "WorldPosX",
+    "ModelY": "WorldPosY",
+    "ModelZ": "WorldPosZ",
+    "RotateX": "RotateX",
+    "RotateY": "RotateY",
+    "RotateZ": "RotateZ",
+    "ScaleX": "ScaleX",
+    "ScaleY": "ScaleY",
+    "ScaleZ": "ScaleZ",
+}
+
+
+def apply_placement(url: str, p, attempts: int = 3, pause: float = 0.4) -> bool:
+    """Set one model's placement and read it back. xLights refreshes its property grid asynchronously,
+    so changes are paced and verified rather than trusted."""
+    want = {
+        "ModelX": p.position[0],
+        "ModelY": p.position[1],
+        "ModelZ": p.position[2],
+        "RotateX": p.rotation[0],
+        "RotateY": p.rotation[1],
+        "RotateZ": p.rotation[2],
+        "ScaleX": p.scale,
+        "ScaleY": p.scale,
+        "ScaleZ": p.scale,
+    }
+    for _ in range(attempts):
+        for key, value in want.items():
+            xlights_command(
+                url,
+                "setModelProperty",
+                {"model": p.model, "key": key, "data": f"{value:.4f}"},
+            )
+            time.sleep(pause)
+        time.sleep(1.0)
+        ok, message = xlights_command(url, "getModel", {"model": p.model})
+        got = json.loads(message).get("model", {}) if ok else {}
+        wrong = [
+            k
+            for k, v in want.items()
+            if got.get(READ_KEYS[k]) is None
+            or abs(float(got[READ_KEYS[k]]) - v) > max(0.01, 1e-3 * abs(v))
+        ]
+        if not wrong:
+            print(f"{p.model}: set and verified")
+            return True
+    print(f"{p.model}: not applied by xLights")
+    return False
 
 
 if __name__ == "__main__":
