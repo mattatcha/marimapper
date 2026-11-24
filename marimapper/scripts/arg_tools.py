@@ -115,6 +115,21 @@ def add_robust_args(parser) -> None:
     )
 
     robust_options.add_argument(
+        "--coded",
+        action="store_true",
+        help="Fastest (implies --robust): every LED blinks its own colour code at once, so a view "
+        "takes seconds instead of minutes. LEDs that overlap from the camera's angle are retried in "
+        "smaller groups. Needs a backend with set_leds (e.g. wled)",
+    )
+
+    robust_options.add_argument(
+        "--coded_rounds",
+        type=int,
+        default=4,
+        help="With --coded: rounds for overlapping LEDs (1, 2, 4, 8... groups)",
+    )
+
+    robust_options.add_argument(
         "--batch",
         type=int,
         default=3,
@@ -156,7 +171,9 @@ def get_detection_settings(args: argparse.Namespace):
     from marimapper.robust_detector import DetectionSettings
 
     return DetectionSettings(
-        robust=args.robust,
+        robust=args.robust or args.coded,
+        coded=args.coded,
+        coded_rounds=max(1, args.coded_rounds),
         batch=args.batch,
         confirm=max(1, args.confirm),
         step=max(1, args.step),

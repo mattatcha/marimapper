@@ -115,7 +115,8 @@ def _scan(scene, n, settings, colour=True):
         scene,
         Backend(scene, n, colour),
         0,
-        TimeoutController(default_timeout_sec=0.3),
+        # fixed: the fake camera answers in microseconds, so an adapted timeout would be flaky
+        TimeoutController(default_timeout_sec=0.3, sample_size_min=10**9),
         40,
         False,
         [queue],

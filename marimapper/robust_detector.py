@@ -58,6 +58,10 @@ class DetectionSettings:
     overlap_limit: float = 0.6
     hidden_limit: float = 0.15
     resample: int = 5
+    coded: bool = (
+        False  # all LEDs at once, each blinking its own colour code (coded_detector)
+    )
+    coded_rounds: int = 4  # overlapping LEDs are retried in 2, 4, 8... random groups
 
 
 # ---------------------------------------------------------------------------------------- images
@@ -331,6 +335,13 @@ def detect_leds(
         for i in skipped:  # keep the progress bar honest
             for q in output_queues:
                 q.put(DetectionControlEnum.SKIP, i)
+
+    if settings.coded and leds.coloured:
+        from marimapper.coded_detector import detect_coded
+
+        return detect_coded(
+            ids, cam, leds, view_id, threshold, display, output_queues, settings
+        )
 
     batch = max(1, min(len(BATCH_COLOURS), settings.batch)) if leds.coloured else 1
     stride = -(-len(ids) // batch)

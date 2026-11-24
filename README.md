@@ -183,6 +183,16 @@ marimapper wled --server 192.168.1.50 --start 0 --end 299 --robust --threshold 4
   view they show their status: green = in 3D, aqua = interpolated, orange = seen but needs another
   angle, red = can't be placed, magenta = not seen yet (`--no_preview`, `--status_brightness`).
 
+**Fastest: `--coded`** (implies `--robust`). Every LED in the range lights at once and blinks its own
+short colour code (9 frames for 300 LEDs), so a view takes seconds instead of minutes, and LEDs hidden
+from that angle cost nothing. Each blob must show one clear colour per frame and a complete, valid code,
+so stars, white light and passing cars still don't count. LEDs that blur together from the camera's
+angle are retried in random smaller groups (`--coded_rounds`, default 4: 1, 2, 4 then 8 groups).
+
+```
+marimapper wled --server 192.168.1.50 --start 0 --end 299 --coded --threshold 40
+```
+
 `--threshold` then means how much the LED's colour has to stand out: try 25-60. Colour and batching need a
 backend with `set_leds` (e.g. `wled`); others fall back to white flashes.
 
