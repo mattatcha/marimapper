@@ -130,6 +130,20 @@ def add_robust_args(parser) -> None:
     )
 
     robust_options.add_argument(
+        "--coded_hold",
+        type=int,
+        default=2,
+        help="With --coded: extra frames to hold each colour; raise it if the camera can't keep up",
+    )
+
+    robust_options.add_argument(
+        "--coded_debug",
+        metavar="FOLDER",
+        default="",
+        help="With --coded: save every pass's frames into FOLDER, for tuning",
+    )
+
+    robust_options.add_argument(
         "--batch",
         type=int,
         default=3,
@@ -174,6 +188,8 @@ def get_detection_settings(args: argparse.Namespace):
         robust=args.robust or args.coded,
         coded=args.coded,
         coded_rounds=max(1, args.coded_rounds),
+        coded_hold=max(0, args.coded_hold),
+        coded_debug=args.coded_debug,
         batch=args.batch,
         confirm=max(1, args.confirm),
         step=max(1, args.step),

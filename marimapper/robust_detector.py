@@ -62,6 +62,10 @@ class DetectionSettings:
         False  # all LEDs at once, each blinking its own colour code (coded_detector)
     )
     coded_rounds: int = 4  # overlapping LEDs are retried in 2, 4, 8... random groups
+    coded_hold: int = (
+        2  # extra frames each colour is held, for slow or buffered cameras
+    )
+    coded_debug: str = ""  # folder to save every coded pass's frames into
 
 
 # ---------------------------------------------------------------------------------------- images

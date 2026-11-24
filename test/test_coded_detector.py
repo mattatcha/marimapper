@@ -1,5 +1,6 @@
 """Simulated-scene tests for --coded (no camera or LEDs needed)."""
 
+import cv2
 import numpy as np
 import pytest
 
@@ -73,7 +74,7 @@ def test_hidden_leds_cost_nothing_and_are_not_reported():
     assert {led.led_id for led in leds} == set(range(n)) - hidden
     assert len(q.items) == n
     assert sum(c == DetectionControlEnum.SKIP for c, _ in q.items) == len(hidden)
-    assert scene.frames < 150
+    assert scene.frames < 250
 
 
 def test_nothing_visible_gives_up_quickly():
@@ -128,3 +129,48 @@ def test_decode_rejects_two_leds_blurred_into_one_blob():
             )
         frames.append((img, img))
     assert cd.decode(frames, background, codes, [0, 1], 40, CODED) == {}
+
+
+def test_auto_exposure_bloom_is_waited_out():
+    class AutoExposure(
+        Scene
+    ):  # after the lighting changes, LEDs bloom for a few frames
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self.last_count, self.adjusting = 0, 0
+
+        def read(self):
+            count = len([c for c in self.shown.values() if any(c)])
+            if abs(count - self.last_count) > 5:
+                self.adjusting = 6
+            self.last_count = count
+            img = super().read()
+            if self.adjusting:
+                self.adjusting -= 1
+                img = cv2.add(cv2.dilate(img, np.ones((15, 15), np.uint8)), 40)
+            return img
+
+    positions = _grid(60)
+    leds, _ = _scan(AutoExposure(positions), 60, CODED)
+    assert {led.led_id for led in leds} == set(range(60))
+    assert max(_errors(leds, positions)) < 2
+
+
+def test_one_unreadable_frame_still_decodes_when_unambiguous():
+    codes = cd.codebook(60)
+    lookup = dict(zip(codes, range(60)))
+    for led in (0, 17, 59):
+        symbols = list(codes[led])
+        symbols[2] = -1
+        assert cd._lookup(lookup, symbols) == led
+        symbols[4] = -1
+        assert cd._lookup(lookup, symbols) is None  # two missing: too risky
+
+
+def test_debug_dump(tmp_path):
+    settings = rd.DetectionSettings(robust=True, coded=True, coded_debug=str(tmp_path))
+    _scan(Scene(_grid(10)), 10, settings)
+    passes = sorted(p.name for p in tmp_path.iterdir())
+    assert passes[0] == "pass000"
+    assert (tmp_path / "pass000" / "background.png").exists()
+    assert (tmp_path / "pass000" / "codes.json").exists()

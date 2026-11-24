@@ -131,7 +131,8 @@ def decode(frames, background, codes, ids, threshold, settings) -> dict:
     """frames: per code position, two frames of the same symbol. Returns {led_id: Point2D}."""
     bg_gray = _gray(background)
     brights = [cv2.subtract(_gray(a), bg_gray) for a, _ in frames]
-    peak = np.maximum.reduce(brights)
+    # median, not max: a frame caught mid auto-exposure blooms every LED into its neighbours
+    peak = np.median(brights, axis=0).astype(np.uint8)
     mask = cv2.dilate(
         (peak >= threshold).astype(np.uint8), np.ones((3, 3), np.uint8)
     )  # a saturated core can leave a gap between core and glow
@@ -147,13 +148,13 @@ def decode(frames, background, codes, ids, threshold, settings) -> dict:
         read[:, s] = np.where(sa == sb, sa, -1)
 
     lookup = dict(zip(codes, ids))
-    mean = np.mean(brights, axis=0)
+    mean = peak.astype(float)
     strength = np.zeros(count)
     np.maximum.at(strength, flat, mean.ravel())
 
     decoded = {}  # led -> [(strength, label)]
     for label in range(1, count):
-        led = lookup.get(tuple(int(v) for v in read[label]))
+        led = _lookup(lookup, read[label])
         if led is not None:
             decoded.setdefault(led, []).append((strength[label], label))
 
@@ -170,7 +171,40 @@ def decode(frames, background, codes, ids, threshold, settings) -> dict:
     return found
 
 
+def _lookup(lookup: dict, symbols) -> Optional[int]:
+    """Exact match, or with one unreadable frame if only one code fits the rest. Codes are
+    CODE_DISTANCE apart, so with one frame missing they still differ in at least two."""
+    symbols = [int(v) for v in symbols]
+    unknown = [k for k, v in enumerate(symbols) if v < 0]
+    if not unknown:
+        return lookup.get(tuple(symbols))
+    if len(unknown) > 1:
+        return None
+    matches = set()
+    for v in range(len(SYMBOLS)):
+        symbols[unknown[0]] = v
+        led = lookup.get(tuple(symbols))
+        if led is not None:
+            matches.add(led)
+    return matches.pop() if len(matches) == 1 else None
+
+
 # ------------------------------------------------------------------------------------- scanning
+
+
+def settle_exposure(cam, limit: int = 30, tolerance: float = 0.015):
+    """Phone and webcam auto-exposure keeps adjusting for a few frames after the lighting changes a
+    lot (all LEDs on or off at once). Read until overall brightness stops changing."""
+    previous, steady = None, 0
+    for _ in range(limit):
+        level = float(np.mean(cam.read())) + 1.0
+        if previous is not None and abs(level - previous) / previous < tolerance:
+            steady += 1
+            if steady >= 2:
+                return
+        else:
+            steady = 0
+        previous = level
 
 
 class Timing:
@@ -204,6 +238,7 @@ def measure_latency(cam, background, threshold) -> Optional[int]:
 def coded_pass(cam, leds, ids, timing, threshold, display, settings) -> dict:
     """Light all `ids` with their codes; return {led_id: Point2D} for the ones read back."""
     codes = codebook(len(ids))
+    settle_exposure(cam)
     background = capture_background(cam, settings)
     frames = []
     for s in range(len(codes[0])):
@@ -213,9 +248,13 @@ def coded_pass(cam, leds, ids, timing, threshold, display, settings) -> dict:
             if timing.latency is None:
                 leds.off(ids)
                 return {}
-        else:
-            for _ in range(timing.latency):
+            for _ in range(settings.coded_hold):
                 cam.read()
+        else:
+            for _ in range(timing.latency + settings.coded_hold):
+                cam.read()
+        if s == 0:
+            settle_exposure(cam)
         frames.append(
             (cam.read(), cam.read())
         )  # two frames per symbol: catches latency jitter
@@ -223,9 +262,37 @@ def coded_pass(cam, leds, ids, timing, threshold, display, settings) -> dict:
     for _ in range(timing.latency + 1):  # let it go dark before the next background
         cam.read()
     found = decode(frames, background, codes, ids, threshold, settings)
+    if settings.coded_debug:
+        _save_debug(settings.coded_debug, background, frames, codes, ids, found)
     if display:
         _show_found(frames[-1][1].copy(), found.values(), display)
     return found
+
+
+def _save_debug(folder, background, frames, codes, ids, found):
+    """Background, every frame and the codes of one pass, for tuning offline."""
+    import json
+    import os
+
+    os.makedirs(folder, exist_ok=True)
+    n = len([d for d in os.listdir(folder) if d.startswith("pass")])
+    out = os.path.join(folder, f"pass{n:03d}")
+    os.makedirs(out)
+    cv2.imwrite(os.path.join(out, "background.png"), background)
+    for k, (a, b) in enumerate(frames):
+        cv2.imwrite(os.path.join(out, f"s{k}a.png"), a)
+        cv2.imwrite(os.path.join(out, f"s{k}b.png"), b)
+    with open(os.path.join(out, "codes.json"), "w") as f:
+        json.dump(
+            {
+                "ids": list(ids),
+                "codes": [list(c) for c in codes],
+                "found": {
+                    str(i): [float(p.u()), float(p.v())] for i, p in found.items()
+                },
+            },
+            f,
+        )
 
 
 def detect_coded(ids, cam, leds, view_id, threshold, display, output_queues, settings):
